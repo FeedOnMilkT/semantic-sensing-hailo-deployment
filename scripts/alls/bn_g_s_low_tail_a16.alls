@@ -1,0 +1,5 @@
+# Accuracy experiment G5: only the final low-resolution reconstruction tail.
+# Kept separate from conv4 so an unsupported A16 resize2 propagation fails
+# independently rather than masking the high-resolution experiment.
+quantization_param(bn_g_s/conv5, precision_mode=a16_w16)
+quantization_param(bn_g_s/output_layer2, precision_mode=a16_w16)

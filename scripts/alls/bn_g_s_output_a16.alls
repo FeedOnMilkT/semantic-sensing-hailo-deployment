@@ -1,0 +1,4 @@
+# Accuracy experiment E1: guide §5.4 step 7.  Keep all internal layers at the
+# baseline precision and elevate only the two deployed module boundary outputs.
+quantization_param(bn_g_s/output_layer1, precision_mode=a16_w16)
+quantization_param(bn_g_s/output_layer2, precision_mode=a16_w16)

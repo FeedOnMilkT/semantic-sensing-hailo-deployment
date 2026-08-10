@@ -1,0 +1,3 @@
+# Formal x_l low-spatial A16 policy, rebound to the OC2 graph HN scope.
+quantization_param(bn_g_s_ge_output_channel_split_2/conv3, precision_mode=a16_w16)
+quantization_param(bn_g_s_ge_output_channel_split_2/output_layer1, precision_mode=a16_w16)

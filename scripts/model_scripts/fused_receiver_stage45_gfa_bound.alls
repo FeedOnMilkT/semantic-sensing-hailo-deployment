@@ -1,0 +1,8 @@
+# GFA's grouped L1 normalization is represented as softmax * reciprocal(sum).
+# The operands have wide, correlated ranges, but the normalized product is
+# mathematically bounded to [0, 1]. Prevent independent worst-case propagation
+# from inflating the ew_mult output range and exhausting the 8-bit shift.
+quantization_param(
+    [receiver_stage45/ew_mult1, receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 1.0]
+)

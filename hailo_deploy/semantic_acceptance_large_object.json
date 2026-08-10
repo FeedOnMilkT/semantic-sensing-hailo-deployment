@@ -1,0 +1,68 @@
+{
+  "schema_version": 3,
+  "effective_date": "2026-08-06",
+  "project": "semantic-sensing",
+  "candidate_tag": "convbn-gfa-gs-current-ort-oc4-mainline",
+  "metric": {
+    "name": "ADE20K high-support-9 macro IoU",
+    "role": "ONLY_SEMANTIC_DECISION_METRIC",
+    "definition": "Unweighted macro IoU over fixed-19 classes that occur in at least 20 images of the immutable held-out-976 ground truth.",
+    "class_indices": [
+      7,
+      10,
+      15,
+      20,
+      23,
+      30,
+      37,
+      83,
+      102
+    ],
+    "class_names": [
+      "bed",
+      "cabinet",
+      "table",
+      "car",
+      "sofa",
+      "armchair",
+      "bathtub",
+      "truck",
+      "van"
+    ],
+    "minimum_positive_images": 20,
+    "positive_image_counts": {
+      "7": 87,
+      "10": 134,
+      "15": 198,
+      "20": 163,
+      "23": 52,
+      "30": 51,
+      "37": 22,
+      "83": 25,
+      "102": 30
+    }
+  },
+  "evaluation": {
+    "sample_count": 976,
+    "val_index_start": 1024,
+    "val_index_end_inclusive": 1999,
+    "subsets": "DIAGNOSTIC_ONLY"
+  },
+  "fp32_reference": {
+    "checkpoint_sha256": "13dc6c4b3a3ea630af6d2d547808137be678bd909f9789f5594b7bdc76c36b90",
+    "full976_high_support_9_macro_iou": 0.42780420136225533,
+    "full976_fixed_19_diagnostic": 0.3530354611814744,
+    "result": "/local/shared_with_docker/deplyment-demo/artifacts/fused/experiments/host-fp32-onnx-high-support-20260806T124957Z/accuracy976.json"
+  },
+  "acceptance": {
+    "only_metric": "high_support_9_macro_iou",
+    "minimum": null,
+    "threshold_status": "NOT_SET_BY_USER",
+    "fixed_19_large_object_macro_iou": "DIAGNOSTIC_ONLY",
+    "ade20k_150_class_miou": "NOT_USED"
+  },
+  "provenance": {
+    "canonical_bundle": "/local/shared_with_docker/deplyment-demo/artifacts/fused/current-ort-oc4-mainline-20260806/manifest.json",
+    "note": "This is the only current deployment semantic acceptance definition."
+  }
+}

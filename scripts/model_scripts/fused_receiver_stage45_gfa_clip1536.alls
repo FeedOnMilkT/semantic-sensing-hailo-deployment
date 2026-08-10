@@ -1,0 +1,12 @@
+# Real 128-sample activation audit (2026-07-15): stage5 reciprocal(sum)
+# p99.9=561.5, max=4047.2. Clipping at 1536 changes 0.0046% of values and
+# yields ~9.1e-7 MAE at the normalized product while recovering >1 scale bit.
+quantization_param(
+    [receiver_stage45/ew_mult1, receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 1.0]
+)
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    force_range_in=[0.0, 1536.0],
+    force_range_index=1
+)

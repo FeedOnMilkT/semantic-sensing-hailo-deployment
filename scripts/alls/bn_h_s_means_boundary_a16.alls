@@ -1,0 +1,5 @@
+# Accuracy experiment H2b: the full internal A16 path is not compilable
+# because Hailo-8 cannot carry A16 through resize1_output_reshape.  Retain
+# the supported, guide-recommended boundary-only rescue for the sensitive
+# entropy-model mean tensor; all internal h_s nodes stay at baseline A8.
+quantization_param(bn_h_s/output_layer1, precision_mode=a16_w16)

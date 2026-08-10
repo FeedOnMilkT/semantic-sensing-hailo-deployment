@@ -1,0 +1,11 @@
+# The normalized product is bounded, while stage5's softmax operand needs one
+# extra scale bit to keep ew_mult2's required negative-exponent shift below 8.
+quantization_param(
+    [receiver_stage45/ew_mult1, receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 1.0]
+)
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    force_range_in=[0.0, 1.5],
+    force_range_index=0
+)

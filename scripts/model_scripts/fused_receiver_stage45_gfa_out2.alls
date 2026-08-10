@@ -1,0 +1,7 @@
+# DFC's ew_mult negative-exponent convention needs a wider declared output
+# range to reduce the required shift. Real max is 0.8674, so [0, 2] avoids
+# clipping while trading roughly one bit of output resolution.
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 2.0]
+)

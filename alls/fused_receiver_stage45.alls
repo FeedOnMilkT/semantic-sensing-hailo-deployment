@@ -1,0 +1,51 @@
+# fused_receiver_stage45.alls — attention (matmul+softmax) 量化起点
+# =============================================================================
+# 用途:scripts/run_fused_compile.py 编 receiver_stage45 时自动追加本文件
+#       (见 hailo_deploy.config_fused.alls_for)。
+# 依据:demo3 findings §1.1 / §7.1-7.2 + hailo_deployment_guide.md §6.3。
+# 提炼自:artifacts/hef/cross_res_attn.auto.alls(attention matmul defuse / softmax chain)
+#         + pipeline.md 里 rtformer_stage / full_backbone 的 matmul shift-delta 实测值。
+#
+# 背景:receiver_stage45 = stage4/5 两个 stepped block(GFA + cross-res attention),
+# 与 demo3 的 rtformer_stage 同族。rtformer_stage / full_backbone 用**随机 dummy 校准**
+# compile 时都撞:
+#   AccelerasUnsupportedError: layer <net>/matmulN does not support shift delta
+# 根因:随机数据在 attn@v 的 data×data matmul 输入处产生退化 range(min≈max),
+# 触发硬件「两输入 range 乘积要够大」约束。**这不是结构/编译问题**,是随机校准副作用。
+#
+# 两条过关路(任选):
+#   A. 真实校准图(≥512/1024 张,range 正常) → 不需要下面的 force_range_in。
+#   B. force_range_in 强行放大退化 range(无需真实数据,只为拿 # of Contexts)。
+# =============================================================================
+
+# --- flavor 已由 compile 驱动以 optimization_level 注入,这里不重复 ---
+
+# --- §6.3 Transformer 组合拳(RTFormer attention 量化友好化)---------------------
+# smart_softmax_stats 默认已开;matmul 均衡/校正抹平 Q/K/V 范围不均衡(掉点大头)。
+# RTFormer GFA 无 LayerNorm,故不需要 layer_norm_decomposition。
+pre_quantization_optimization(smart_softmax_stats, policy=enabled)
+pre_quantization_optimization(matmul_equalization, layers={*matmul*}, policy=enabled)
+pre_quantization_optimization(matmul_correction, layers={*matmul*}, correction_type=zp_comp_weights)
+# 离群严重时再开(较慢):
+# pre_quantization_optimization(quarot, policy=enabled)
+
+# --- force_range_in:仅在用随机 dummy 校准撞 shift delta 时启用(路 B)-----------
+# ⚠️ 下面是**模板 + demo3 已知值参考**,不能直接照抄最终值。
+#    真实层名/范围必须从本模块 optimize 的报错里读:
+#      "layer receiver_stage45/matmulN does not support shift delta ...
+#       current range of input 0 is [a, b] and input 1 is [c, d].
+#       increase ... by a factor of F, e.g. apply sqrt(F) to both inputs"
+#    按报错给的 range × sqrt(F) 填 force_range_in=[min0,max0,min1,max1]。
+#
+# demo3 已证同族值(量级参考,层名/数值按你的报错替换):
+#   quantization_param([rtformer_stage/matmul2], force_range_in=[0.006, 0.025, -2.590, 2.167], force_range_index=[0,1])
+#   quantization_param([full_backbone/matmul2],  force_range_in=[0.021, 0.021, -0.190, 0.181], force_range_index=[0,1])
+#   quantization_param([full_net_seg_depth/matmul2], force_range_in=[0.021, 0.021, -0.189, 0.186], force_range_index=[0,1])
+#
+# 本模块有多组 attention matmul(stage4/5),可能需逐个补;取消注释并按报错逐层填:
+# quantization_param([receiver_stage45/matmul2], force_range_in=[0.006, 0.025, -2.590, 2.167], force_range_index=[0,1])
+# quantization_param([receiver_stage45/matmul4], force_range_in=[0.006, 0.025, -2.590, 2.167], force_range_index=[0,1])
+
+# --- 提精度(可选):softmax chain 内的 Reduce/Sum/EW Add 不能 blanket 16-bit ----
+# (guide §6.1 注脚)。掉点大时优先对 conv/matmul 上 16-bit,softmax 链靠上面 §6.3。
+# quantization_param(<layer>, precision_mode=a16_w16)

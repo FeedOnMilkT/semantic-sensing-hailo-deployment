@@ -1,0 +1,7 @@
+# Real 128-sample stage5 normalized-attention audit: p99.99=0.37538;
+# clipping at 0.375 affects 0.0101% of values with ~6.7e-6 tensor MAE.
+# Halving the output range recovers the one scale bit ew_mult2 lacks.
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 0.375]
+)

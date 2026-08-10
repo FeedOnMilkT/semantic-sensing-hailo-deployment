@@ -1,0 +1,4 @@
+# Accuracy experiment G4: only the high-resolution reconstruction path.
+# This avoids requesting A16 across resize2, which DFC v3.33.1 rejects.
+quantization_param(bn_g_s/conv3, precision_mode=a16_w16)
+quantization_param(bn_g_s/output_layer1, precision_mode=a16_w16)

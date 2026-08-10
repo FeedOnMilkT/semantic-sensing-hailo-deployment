@@ -1,0 +1,13 @@
+# Validated ConvBN bn_g_s high-path A16 profile, remapped into fused synthesis_tail.
+#
+# Standalone PASS used:
+#   quantization_param(bn_g_s/conv3, ...)        # /head_l/Conv
+#   quantization_param(bn_g_s/output_layer1, ...) # x_l_hat interface
+# After optimize that yields head_l a16_w16_a16, post-resize trunk a8_w8_a16,
+# and resize1 remaining a8 (compilable).
+#
+# Fused synthesis_tail has no x_l_hat output. Map only head_l:
+#   bn_g_s/conv3 -> synthesis_tail/conv3
+# Do NOT mark synthesis_tail/conv2 (post-resize trunk): explicit a16_w16 there
+# forces resize1 to a8_w8_a16 and compile fails on resize1_output_reshape.
+quantization_param(synthesis_tail/conv3, precision_mode=a16_w16)

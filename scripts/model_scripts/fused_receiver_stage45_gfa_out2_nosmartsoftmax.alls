@@ -1,0 +1,7 @@
+# The explicit smart-softmax decomposition creates a broadcast resize whose
+# physical 1x256 layout conflicts with the 16x16 producer in this fused graph.
+pre_quantization_optimization(smart_softmax_stats, policy=disabled)
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 2.0]
+)

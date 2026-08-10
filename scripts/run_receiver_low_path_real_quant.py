@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Thin wrapper → scripts/legacy/run_receiver_low_path_real_quant.py"""
+from __future__ import annotations
+import runpy
+import sys
+from pathlib import Path
+sys.argv[0] = str(Path(__file__).resolve().parent / "legacy" / "run_receiver_low_path_real_quant.py")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+runpy.run_path(sys.argv[0], run_name="__main__")

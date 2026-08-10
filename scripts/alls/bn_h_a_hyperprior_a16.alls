@@ -1,0 +1,7 @@
+# Accuracy experiment H1: bn_h_a has the lowest measured layer SNR in the
+# ConvBN candidate (conv1 7.39 dB, conv2/output 8.84 dB).  Preserve its two
+# convolution activations and the externally handed-off latent_z in 16-bit.
+# This is a single-module diagnostic: all non-bn_h_a modules remain baseline.
+quantization_param(bn_h_a/conv1, precision_mode=a16_w16)
+quantization_param(bn_h_a/conv2, precision_mode=a16_w16)
+quantization_param(bn_h_a/output_layer1, precision_mode=a16_w16)

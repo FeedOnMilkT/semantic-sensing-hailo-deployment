@@ -1,0 +1,6 @@
+# Keep stage5 GFA inputs/weights at 8-bit, but retain a 16-bit output so the
+# negative-exponent fixer does not discard all 8 data bits at ew_mult2.
+quantization_param(
+    [receiver_stage45/ew_mult2],
+    precision_mode=a8_w8_a16
+)

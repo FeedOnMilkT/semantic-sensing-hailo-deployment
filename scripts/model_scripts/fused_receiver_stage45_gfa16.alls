@@ -1,0 +1,6 @@
+# Targeted precision for RTFormer GFA grouped double-normalization.
+# Both layers map to stage{4,5}/gfa/Div after parser decomposition.
+quantization_param(
+    [receiver_stage45/ew_mult1, receiver_stage45/ew_mult2],
+    precision_mode=a16_w16
+)

@@ -1,0 +1,6 @@
+# Accuracy experiment G1: bn_g_a's two convolution outputs are only
+# 11.28/12.01 dB SNR.  Keep the encoder latent_y calculation in A16 through
+# its boundary; inputs and concat remain at the baseline A8.
+quantization_param(bn_g_a/conv1, precision_mode=a16_w16)
+quantization_param(bn_g_a/conv2, precision_mode=a16_w16)
+quantization_param(bn_g_a/output_layer1, precision_mode=a16_w16)

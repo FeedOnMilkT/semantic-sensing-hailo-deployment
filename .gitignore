@@ -1,0 +1,34 @@
+# Local build products and reproducibility evidence. Keep immutable hashes in reports.
+/artifacts/
+/.install_logs/
+/estimation.csv
+
+# Runtime and SDK logs.
+*.log
+
+# Generated model/data payloads.
+*.har
+*.hef
+*.onnx
+*.pth
+*.pt
+*.ckpt
+*.hdf5
+*.npy
+*.npz
+*.auto.alls
+
+# Local-only agent/environment instructions.
+/CLAUDE.md
+
+# Python/editor generated files.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+
+# Editor and patch backups.
+*.orig
+*~

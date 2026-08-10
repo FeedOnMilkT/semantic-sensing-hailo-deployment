@@ -1,0 +1,7 @@
+# Accuracy experiment H2: bn_h_s loses the entropy-model mean output at
+# conv_slice1/output_layer1 (7.49 dB).  conv2 is the shared producer of the
+# split mean/scale tensors, so it must use 16-bit before elevating the mean
+# boundary output.  This is a single-module diagnostic.
+quantization_param(bn_h_s/conv2, precision_mode=a16_w16)
+quantization_param(bn_h_s/conv_slice1, precision_mode=a16_w16)
+quantization_param(bn_h_s/output_layer1, precision_mode=a16_w16)

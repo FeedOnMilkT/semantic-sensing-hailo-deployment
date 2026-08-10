@@ -1,0 +1,3 @@
+# Applied after the Level-4 optimization of the physical Hyper segment only.
+# Every QFT lane uses the identical 3,276-image optimization set.
+post_quantization_optimization(finetune, policy=enabled, dataset_size=3276, epochs=4)

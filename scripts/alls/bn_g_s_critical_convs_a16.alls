@@ -1,0 +1,9 @@
+# Accuracy experiment G3: bn_g_s is the semantic reconstruction bottleneck.
+# Its high output (conv3/output1) has 6.82 dB SNR and its low branch passes
+# through conv4 (7.31 dB) and conv5.  Elevate only those supported Conv paths
+# and their two module outputs; leave concat/resize in the Hailo-8 A8 path.
+quantization_param(bn_g_s/conv3, precision_mode=a16_w16)
+quantization_param(bn_g_s/conv4, precision_mode=a16_w16)
+quantization_param(bn_g_s/conv5, precision_mode=a16_w16)
+quantization_param(bn_g_s/output_layer1, precision_mode=a16_w16)
+quantization_param(bn_g_s/output_layer2, precision_mode=a16_w16)

@@ -1,0 +1,10 @@
+# Bound the stage5 inv_pos layer itself, so nonlinear fitting and its consumer
+# share the same encoding. Threshold is justified by the real 128-sample audit.
+quantization_param(
+    [receiver_stage45/mul_and_add3],
+    force_range_out=[0.0, 1536.0]
+)
+quantization_param(
+    [receiver_stage45/ew_mult1, receiver_stage45/ew_mult2],
+    force_range_out=[0.0, 1.0]
+)

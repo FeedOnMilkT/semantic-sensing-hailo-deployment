@@ -1,0 +1,11 @@
+# Formal x_l low-spatial A16 policy, rebound to the phase-rewrite HN scope.
+quantization_param(bn_g_s_phase_stride2/conv3, precision_mode=a16_w16)
+quantization_param(bn_g_s_phase_stride2/output_layer1, precision_mode=a16_w16)
+
+# DepthToSpace in DFC 3.33 requires one scalar encoding across all phase
+# channels.  This is the formal conv4 post-ReLU global range recovered from
+# the existing formal qHAR (limvals_out max); the phase graph is FP-equivalent.
+quantization_param(
+    bn_g_s_phase_stride2/activation1,
+    force_range_out=[0.0, 3.3171074390411377]
+)

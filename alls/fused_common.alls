@@ -1,0 +1,24 @@
+# fused_common.alls — 通用量化脚本(手动 optimize 真实校准时用)
+# =============================================================================
+# 说明:run_fused_compile.py 的 dummy-calib 规模探测会自己注入 flavor,**不读本文件**;
+# 本文件供你在容器内**手动**跑真实校准 optimize 时加载(见 FUSED_DEPLOYMENT.md 阶段2)。
+#
+#   runner = ClientRunner(har="artifacts/fused/har/<name>_hailo_model.har")
+#   runner.load_model_script(open("alls/fused_common.alls").read())
+#   # attention 模块再叠加 alls/fused_receiver_stage45.alls 的 §6.3 命令
+#   runner.optimize(calib)     # calib = 真实图 NHWC, ≥512(level-2 荐 ≥1024)
+# =============================================================================
+
+# level-2:迭代默认档(guide §5.3;出论文的 β 再单独跑 level-4)
+model_optimization_flavor(optimization_level=2, compression_level=0, batch_size=1)
+
+# 激活裁剪(可选,离群大时收尾部):
+# pre_quantization_optimization(activation_clipping, layers={*}, mode=percentile, clipping_values=[0.01, 99.99])
+
+# =============================================================================
+# GDN/IGDN codec(bn_align_h / bn_g_a / bn_g_s)—— demo 未覆盖的新验证重点
+# -----------------------------------------------------------------------------
+# 含 Pow/Sqrt/Div/Mul(GDN/BoundedIGDN),Hailo DFC 无原生 GDN、guide §7 未列。
+# 预期:大概率 **parse 阶段就 FAIL**(不是量化阶段)。应对(见 FUSED_DEPLOYMENT 故障排查):
+#   → 训 act:convbn 变体(phase2_mid_fused_stage{1,2}_convbn.yaml)重导 ONNX 再 parse。
+# 因此不为 codec 预置 force_range/精度命令;先拿到 parse 结论再说。
