@@ -1,0 +1,13 @@
+# Runtime inputs and generated outputs are external artifacts.
+*.so
+build/
+*.egg-info/
+runtime_manifest*.json
+codec_runtime.json
+codec_tables.npz
+hef/
+onnx/
+logs/
+results/
+diagnostics/
+__pycache__/
