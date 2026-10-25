@@ -23,6 +23,7 @@ hailo_deploy/    reusable deployment library
   artifacts/     run layout and SDK log helpers
 pipelines/       thin orchestration entry points
 board_eval/      Raspberry Pi deployment and Gate-8 evaluation tools
+board_runtime/   board-side hybrid Hailo/ORT inference runtime
 scripts/         compatibility wrappers and legacy diagnostics
 alls/            maintained DFC model scripts
 configs/         candidate-specific DFC model scripts
@@ -109,6 +110,8 @@ PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
 Hailo SDK, ONNX Runtime, and board tests require their respective environments and immutable external artifacts. See [the deployment guide](doc/hailo_deployment_guide.md) and [board evaluation notes](board_eval/README.md).
+
+The minimal source snapshot that actually runs inference on the Raspberry Pi is documented separately in [board_runtime](board_runtime/README.md). Its model files, codec tables, manifests, compiled extensions, and inference outputs remain external artifacts.
 
 ## Artifact policy
 
