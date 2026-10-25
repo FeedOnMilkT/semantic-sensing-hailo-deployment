@@ -34,7 +34,28 @@ Each run uses a new `out_root` and refuses to overwrite an existing result. Stor
 
 ## Environment
 
-Run parse/PTQ/compile commands in a Hailo Software Suite environment compatible with Hailo-8 and DFC 3.x. Keep the PyTorch training/export environment separate.
+Docker is not required. The deployment tools can run from an isolated Python virtual environment, provided the host has a compatible Hailo-8 DFC 3.33.x installation. Keep the PyTorch training/export environment separate.
+
+Create the general-purpose venv:
+
+```bash
+./scripts/setup_venv.sh
+source .venv/bin/activate
+```
+
+Hailo's SDK is distributed through the authorized Hailo Software Suite, not assumed to be available from public PyPI. If you have its Python wheels, install them while creating the venv (the wheel directory must contain the Suite's `hailo-dataflow-compiler` package and dependencies):
+
+```bash
+HAILO_WHEEL_DIR=/path/to/suite/wheels ./scripts/setup_venv.sh
+```
+
+Alternatively, expose an existing compatible Hailo installation's `site-packages` to the venv without copying or modifying it:
+
+```bash
+HAILO_SITE_PACKAGES=/path/to/hailo/python3.10/site-packages ./scripts/setup_venv.sh
+```
+
+Use a Python version compatible with the installed DFC wheels. The setup script defaults to `python3`; select another interpreter with `PYTHON=/path/to/python3.10`. It installs the ONNX/runtime utility dependencies into `.venv`, then runs `scripts/check_hailo_env.py`. That diagnostic exits nonzero when core SDK/ONNX imports are unavailable. Do not mix DFC 5.x with the Hailo-8 workflow.
 
 Set the companion training repository when a command needs model or codec source:
 

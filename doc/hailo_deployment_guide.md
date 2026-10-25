@@ -33,12 +33,14 @@ Demo 3 的目标 = 证明 **RTFormer 的算子能过 Hailo DFC + 量化掉点可
 
 ---
 
-## 2. 环境（强烈建议走 Docker + GPU）
+## 2. 环境（Docker 或宿主机 venv）
 
-### 2.1 为什么用 Docker suite 而非裸装 wheel
-- Docker 镜像里 DFC + HailoRT + Model Zoo 版本已配好，**免去版本地狱**（ONNX/ONNXRuntime/PyTorch/Python 版本对齐）。
-- Model Zoo 自带 → 抄 SegFormer/LeViT 的 `.alls` 量化配置很方便。
-- **训练环境（新 PyTorch）和 Hailo 环境（其自带版本）天然隔离**，互不污染。
+### 2.1 环境隔离与选型
+Docker suite 是一条受支持的路径，但不是强制要求。宿主机也可以用独立 Python venv 跑部署工具；前提是该机已经从授权的 Hailo Software Suite 安装包获得 Hailo-8 对应的 DFC 3.33.x SDK 及其运行时依赖。不要从公共 PyPI 猜装或混用 DFC 5.x。
+
+仓库的 `scripts/setup_venv.sh` 会创建 `.venv`、安装通用 ONNX/runtime 工具依赖并检查 SDK 导入。可以通过 `HAILO_WHEEL_DIR` 安装 suite 提供的 wheel，或通过 `HAILO_SITE_PACKAGES` 只读复用同 Python ABI 的既有 SDK 安装；完整用法见仓库根目录 README。训练环境（新 PyTorch）仍应与 Hailo 环境分开。
+
+Docker 的优势仍是 DFC + HailoRT + Model Zoo 版本预先配套；若宿主机缺少授权 SDK 或其系统依赖，应使用 Docker/Suite 安装包补齐，而不是尝试用通用 pip 包替代。
 
 ### 2.2 硬件/软件要求
 - Ubuntu 20.04/22.04（裸装支持 22.04/24.04；Windows 走 WSL2）。
@@ -251,6 +253,203 @@ post_quantization_optimization(finetune, policy=enabled, def_loss_type=cosine, d
 4. Reshape 仅支持固定模式（照 MHA 示例的 `flatten(2)+permute` 最稳）。
 
 **叙事微调**：原以为 RTFormer 优势在"线性/external 注意力可精确折叠"；现发现 Hailo 对**标准 softmax MHA 也友好**，即使 GFA 折叠路线受阻，退回"标准 MHA + 蒸馏桥接"也有官方兜底。RTFormer 上板风险可控。
+
+### 7.1 ★★ DFC 3.33 的 `Floor` / `Cast` 是 **no-op**：取整必须放 host
+
+> 实测（发送端 bottleneck 踩坑，根因已定位）。**这一条对任何"图内取整"的模型都成立**（超分编解码、
+> 量化感知、向量量化等），先看这里再写图。
+
+**现象**：`Floor` 节点在 DFC 里能 parse、能 optimize、能 compile，但**不产生任何取整效果**；
+`Cast` 到 int32 同样无效。
+
+**证据（差分探针，`scripts/probe_control_ops.py`）**——同一个输入张量过 5 个单输出图，
+结果与 ORT 对照：
+
+| 算子 | Hailo 结果 | 判定 |
+|---|---|---|
+| `Mul(x, 1)` | 与 ORT 一致 | ✅ 探针本身是可靠的 |
+| `Abs(x)` | 与 ORT 一致 | ✅ |
+| `Mul(x, 2)` | 与 ORT 一致 | ✅ |
+| `Floor(x)` | **原样返回 x** | ❌ no-op |
+| `Cast(x→int32)` | **原样返回 x** | ❌ no-op |
+
+探针自检通过（`Mul`/`Abs` 与 ORT 完全吻合），所以"取整失效"是**编译器行为**，不是探针 bug。
+
+**更硬的证据：编译器根本没保留这个算子**（`scripts/check_floor_layer.py`）。
+对含 `Floor` 的 bottleneck 图，optimized HAR 里 **23 层，一个 rounding 层都没有**，
+只有 GDN 用的 2 个 `ew_mult` + 2 个 `feature_multiplier`：
+
+```
+layer types:  11 conv | 4 output_layer | 2 input_layer
+              2 feature_multiplier | 2 ew_mult | 1 concat | 1 resize
+rounding-related layers: (none)
+```
+
+也就是说 `Floor` 在 **parse 阶段就被吃掉了**，根本没有进 HEF —— 所以**真板子也不会取整**，
+不是"emulator 骗人、板子上是好的"。
+
+**代价（实测，64 张真实验证图，CompressAI 真实 rANS 码流）**：
+
+| 路线 | bpp | z bits/img | y bits/img |
+|---|---|---|---|
+| PyTorch FP32 | 0.1796 | 1 145 | 45 944 |
+| Hailo int8（图内 Floor） | **0.4219**（+135%） | **59 988**（52×） | 50 604 |
+| Hailo int8（取整放 host） | **0.1808**（+0.63%） | 1 118 | 46 265 |
+
+超-latent 的 `z_hat` 没取整 → 传输符号不是整数 → factorized prior 看到离群点 →
+z 流每个符号多花几十倍比特。**y 流几乎不变**，因为 y 本来就由 means/scales 量化，
+不依赖取整。所以"bpp 涨 2.3 倍"这个现象要能从 z/y 分项一眼定位。
+
+**正确做法：把取整拆到 host，图里不留 `Floor`**。
+
+```
+HEF #1 "enc" : (x_h, x_l) -> (y, z_pre)     # align_h + g_a + h_a（重活全在片上）
+HOST         : z_hat = floor(z_pre + 0.5) + median    # 标量，numpy 一行
+HEF #2 "hs"  : z_hat -> (means, scales)                # h_s
+```
+
+host 只多传一个 `[1,128,8,8]`（32 KiB）的小张量，换来 bpp 从 0.42 回到 0.18。
+这与"取整/熵编码放主机侧"的部署约定完全一致（熵编码本来就不在 Hailo 上做）。
+
+**注意 median 语义**：CompressAI 传输的是 `round(z - median)`，`z_hat = 符号 + median`。
+所以校验"符号是不是整数"要查 **`z_hat - median`**，不是 `z_hat` 本身——
+`z_hat` 带 median 偏移，本来就不是整数（`max|x - round(x)| ≈ 0.49` 是正常的）。
+
+**替代方案已排除**：`Cast` 到 int32 同样是 no-op；`trunc(d + 1024.5) - 1024`
+这种"用 Cast 凑出 floor"的写法也因 Cast 无效而不成立（`probe_cast_rounding.py` 实测）。
+**DFC 3.33 没有可用的片上取整原语，host 取整是唯一解。**
+
+### 7.2 ★★ 发送端最终定为「全 Hailo 方案」（结论，已坐实）
+
+> 决策记录（2026-10-25）。发送端 = **backbone + bottleneck_enc + bottleneck_hs 三个 HEF 全在 Hailo 上**，
+> 取整 `floor(z_pre+0.5)+median` 放 host 侧标量算子。**不再走 hybrid（Hailo backbone + ORT fp16
+> bottleneck）路线。** 依据：全量校准 + **全量 2000 张验证集**的实测数字（下表）。
+> （2026-10-25 修正：此前此处用的是 500 张分层子集，mIoU 口径偏低、不可与训练日志的 0.3499 混用，
+> 详见本节末尾的「口径归因」。）
+
+**最终链路**（三个 HEF + 一个 host 标量算子）：
+
+```
+HEF #1 "backbone" : image(0..255)      -> (x_h, x_l)      # on-chip normalization
+HEF #2 "enc"      : (x_h, x_l)         -> (y, z_pre)      # align_h + g_a + h_a
+HOST              : z_hat = floor(z_pre + 0.5) + median   # 标量，整数化保证
+HEF #3 "hs"       : z_hat              -> (means, scales) # h_s
+```
+
+**全量校准（1792 张，`calibset_size=1792` 显式设置，DFC 日志确认「Using dataset with 1792 entries」）**
+—— 三个 HEF 全部 compile 成功，**均为单 context**：
+
+| HEF | context | Control | Compute | Memory | 大小 |
+|---|---|---|---|---|---|
+| `sender_backbone.hef` | 1 | 71.1% | 75.4% | 54.3% | 8.4 MiB |
+| `sender_bottleneck_enc.hef` | 1 | 14.1% | 12.3% | 10.8% | 1.8 MiB |
+| `sender_bottleneck_hs.hef` | 1 | 48.4% | 33.6% | 22.4% | 1.7 MiB |
+
+> backbone 的 cluster_0 compute 已到 100%（上限 75% 的 override 下映射后回落），是全链路最紧的一环；
+> enc/hs 余量充足。**单 context = 不需要 `--runtime-data` 就能在 host 上拿性能数字（见 §9）。**
+
+**全量验证集（2000 张，`val_manifest.json` 的 `full`）实测 —— 这才是与训练日志同口径的数字**：
+
+> **口径说明（2026-10-25 修正）**：训练日志里 student 的 `mIoU=0.3499` 是
+> `tools/train_student.py` → `evaluate_student` 在 **ADE20K 全量 2000 张 validation** 上算的
+> （`cfg.data.val` → `ade20k_local`，resize 512×512，数据集累计混淆矩阵，150 类，ignore=255，
+> bpp = **估计** bpp）。用**原代码路径**复现得到 `bpp=0.1738 mIoU=0.3499 pixel_acc=0.7627`，
+> 与训练日志逐位一致。**它和部署评估的 0.2865 不是同一口径**（差的是评估集，不是模型，也不是 bug）。
+
+| 指标（全量 2000 张） | PyTorch FP32 | Hailo int8（全 Hailo） | 差异 |
+|---|---|---|---|
+| bpp（真实 rANS） | 0.17467 | 0.17583 | **+0.66%** |
+| z bits/img | 1 180 | 1 156 | −2% |
+| y bits/img | 44 610 | 44 937 | +0.7% |
+| cos `x_h` | 1.0 | min 0.99588 / mean 0.99778 | — |
+| cos `x_l` | 1.0 | min 0.99404 / mean 0.99786 | — |
+| cos `y` | 1.0 | min 0.99519 / mean 0.99799 | — |
+| cos `z_hat` | 1.0 | min 0.98371 / mean 0.99168 | — |
+| cos `means` | 1.0 | min 0.99184 / mean 0.99637 | — |
+| cos `scales` | 1.0 | min 0.99784 / mean 0.99924 | — |
+| **mIoU（接收端全链路回放）** | **0.350361** | **0.350852** | **+0.0005** |
+| 像素准确率 | 0.762714 | 0.762696 | −0.00002 |
+
+- **同口径下 FP32 = 0.3504，与训练日志的 0.3499 一致**（差 0.0005 来自 batch size 8 vs 1 的浮点累加顺序）。
+- **Hailo 与 FP32 的差异在噪声内**：2000 张配对 t 检验，per-image ΔmIoU 均值 **−0.000543**，
+  **t = −0.70，p = 0.48（不显著）**。结论：**全 Hailo 量化误差对分割精度的影响可以忽略**。
+- **`z_hat` 符号 100% 整数**（`max|x-round(x)| = 2.4e-07`），2000 张无一例外 —— host 取整这条路走通了。
+
+**⚠️ 500 张子集（`val_manifest.json` 的 `subset`，场景分层）的 mIoU 偏低是「评估集口径」问题，不是精度问题**：
+
+| 口径 | 图片数 | PyTorch FP32 mIoU | pixel_acc | 出现类别数 |
+|---|---|---|---|---|
+| 训练评估（全量 validation） | 2000 | **0.3499** | 0.7627 | 150 |
+| 部署评估（场景分层 subset） | 500 | **0.2865** | 0.7008 | 147 |
+
+**实测归因**（脚本 `deploy/diagnose_miou_gap.py`，同一条解码路径同时跑两套口径）：
+
+- **解码路径逐位相同**：同一批图上，训练路径 `student(x)` 与部署路径
+  `bb → be → round(y−means)+means → bn._synthesize → student._receiver`
+  的 `y / z_hat / means / scales / x_hat / logits` **max|diff| 全部 = 0.0**。
+  → **不是量化/取整/标签对齐的问题**。
+- **预处理逐位相同**：dataset 读图 vs 文件读图，image / label / logits **max|diff| = 0.0**
+  （`deploy/check_preproc_equivalence.py`）。→ **不是预处理不一致的问题**。
+- **标签映射正确**：ADE20K source id 1..150 → 0..149、0 → 255，两条路径 0 个像素不一致。
+- **唯一变量 = 评估集**：2000 张上 mIoU = 0.3498；同 2000 张里随机抽 500 张，
+  mIoU = **0.3407 ± 0.0118**（p5 = 0.3217，p95 = 0.3599）—— 随机子集仍然在 0.34 附近，
+  **而这个分层 subset 落在 200 次随机抽样的第 0 位（百分位 0.0%，即最差的那一档）**。
+- **机制**：mIoU 对**每个出现的类别等权平均**。subset 里稀有类几乎塌掉：
+  class 105 在 subset 只有 **1 张图**（全量 4 张），IoU 从 0.513 → **0.000**；
+  class 37 只 4 张（全量 37 张），IoU 0.544 → 0.015。
+  subset 中「≤2 张图」的 21 个类，平均 |ΔIoU| = **0.129**；
+  「≥20 张图」的 38 个类只有 **0.077**。
+  按 gt 像素量加权的 IoU（全量 0.632 vs subset 0.558）差距也明显小于等权 mIoU 的差距。
+
+> **结论**：0.35 → 0.29 完全是 **500 张分层子集这个样本本身偏难 + 稀有类塌陷** 造成的
+> 评估集口径差异，**与 Hailo 量化无关，也与任何代码 bug 无关**。
+> 报数字时必须写明评估集：**全量 2000 张 = 0.3504**，500 张子集 = 0.2865，两者不可混用。
+
+**可复用脚本**（都在 `/root/Semantic-sensing/deploy/`）：
+
+| 脚本 | 作用 |
+|---|---|
+| `hailo_split_pipeline.py` | **全 Hailo 链路的可复用实现**：`SplitSenderHailo`（DFC emulator）/ `SplitSenderBoard`（HailoRT 真板）两个后端，接口一致；`host_round_z()` 是那个 host 标量算子 |
+| `dump_reference_500.py` | dump PyTorch FP32 参考张量 + 走完整接收端算出 FP32 基线 mIoU（`--split subset|full`） |
+| `eval_all_hailo_500.py` | 统一评估：特征余弦 / 真实 rANS bpp / mIoU 代理 / 离群图归因 |
+| `analyze_all_hailo_500.py` | 深入分析：64 vs 500 一致性、符号翻转归因、mIoU 差值显著性 |
+| `diagnose_miou_gap.py` | **口径归因**：同一批图上同时跑「训练路径」与「部署路径」，逐个中间张量比 max\|diff\|，并按 `--scope full\|subset500` 切换评估集 |
+| `repro_train_point.py` | **用原代码路径**（`evaluate_student` + `make_loader`）复现训练日志的 `[POINT]` 行 |
+| `bootstrap_miou_subset.py` | 500 张子集 vs 全量的 mIoU 分布：随机子集抽样 + 稀有类塌陷归因 |
+| `check_preproc_equivalence.py` | dataset 读图 vs 文件读图的 image/label/logits 逐像素一致性 |
+| `compare_bpp_conventions.py` | 「估计 bpp」（训练日志）与「真实 rANS bpp」（部署）的口径对照 |
+
+```bash
+# 复现（全量 2000 张，与训练日志同口径 —— 推荐口径）
+cd /root/deploy_artifacts/hailo/sender && nohup \
+  /root/miniconda3/envs/hailo-dfc/bin/python \
+  /root/Semantic-sensing/deploy/hailo_split_pipeline.py \
+    --split full --n 2000 --chunk 50 --out-dir /dev/shm/hailo2000/hailo > split2000.log 2>&1 &
+# 参考与评估（torch venv）
+/root/Semantic-sensing/venv-hailo/bin/python /root/Semantic-sensing/deploy/dump_reference_500.py \
+  --split full --n 2000 --device cuda --out-dir /dev/shm/hailo2000/ref
+/root/Semantic-sensing/venv-hailo/bin/python /root/Semantic-sensing/deploy/eval_all_hailo_500.py \
+  --ref-dir /dev/shm/hailo2000/ref --hailo-dir /dev/shm/hailo2000/hailo \
+  --out-dir /root/deploy_artifacts/data/eval/all_hailo2000 --n 2000 --device cuda
+
+# 复现训练日志的 [POINT]（用原代码路径，2000 张）
+/root/Semantic-sensing/venv-hailo/bin/python /root/Semantic-sensing/deploy/repro_train_point.py \
+  --device cuda --out-dir /root/deploy_artifacts/data/eval/gap_diag
+# 归因：口径差异定位
+/root/Semantic-sensing/venv-hailo/bin/python /root/Semantic-sensing/deploy/diagnose_miou_gap.py \
+  --scope subset500 --path both --device cuda
+/root/Semantic-sensing/venv-hailo/bin/python /root/Semantic-sensing/deploy/bootstrap_miou_subset.py \
+  --n 2000 --subset-size 500 --draws 200 --device cuda
+```
+
+**⚠️ 遗留 bug（本轮修掉）**：`dump_reference_500.py` 与 `eval_all_hailo_500.py` 之前把模型留在 CPU
+却把输入张量 `.to(device)`，因此 `--device cuda` 会直接报
+`Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor)`；
+且 rANS 熵编码器只能在 CPU 跑。现在：模型按阶段显式 `.to(device)`，rate 阶段强制 CPU、
+mIoU 阶段再移回 device。**这两个脚本之前只在 `--device cpu` 下跑过，所以 bug 没暴露。**
+
+**遗留**：`sender_bottleneck.hef`（单图版本，图内含 `Floor` → bpp 翻 2.3 倍的那个有 bug 的 HEF）
+**保留但不使用**，勿误用。
 
 ---
 
